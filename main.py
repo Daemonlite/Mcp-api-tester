@@ -2,78 +2,103 @@ import asyncio
 import httpx
 import json
 import logging
+from pathlib import Path
 from faker import Faker
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent
 
-# Initialize the MCP Server and Faker
-server = Server("inventory-mcp")
+# Initialize MCP Server and Faker
+server = Server("api-test-server")
 fake = Faker()
 
-# Configure logging
+# Logging setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-# Define your API's base URL
-API_BASE_URL = "http://localhost:8000/"  # Change this to your test API's URL
+# --- Load Config ---
+CONFIG_PATH = Path(__file__).parent / "config.json"
 
-# --- Tool Schemas ---
-CREATE_PRODUCTS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "count": {"type": "number", "description": "Number of test products to create."},
-        "category": {
-            "type": "string",
-            "description": "Primary category for the products (e.g., 'electronics', 'clothing').",
-            "nullable": True
-        },
-    },
-    "required": ["count"],
-}
+if not CONFIG_PATH.exists():
+    raise FileNotFoundError("❌ Missing config.json file. Please create it before running.")
 
-CREATE_CUSTOMERS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "count": {"type": "number", "description": "Number of test customers to create."}
-    },
-    "required": ["count"],
-}
+with open(CONFIG_PATH, "r") as f:
+    CONFIG = json.load(f)
 
-CLEAR_DATA_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "confirm": {
-            "type": "boolean",
-            "description": "You must set this to true to confirm you want to delete all data."
-        }
-    },
-    "required": ["confirm"],
-}
+API_BASE_URL = CONFIG.get("api_base_url")
+ENDPOINTS = CONFIG.get("endpoints", {})
 
 
-# --- Register Tools ---
+# --- Dynamic Tool Registration from Config ---
 @server.list_tools()
 async def handle_list_tools() -> list[Tool]:
-    return [
-        Tool(
-            name="create_test_products",
-            description="Creates realistic test products by making POST requests to the /products API endpoint.",
-            inputSchema=CREATE_PRODUCTS_SCHEMA,
-        ),
-        Tool(
-            name="create_test_customers",
-            description="Creates realistic test customer profiles by making POST requests to the /customers API endpoint.",
-            inputSchema=CREATE_CUSTOMERS_SCHEMA,
-        ),
-        Tool(
-            name="clear_test_data",
-            description="**DANGER**: Deletes all data from the test database. Only use on a test environment!",
-            inputSchema=CLEAR_DATA_SCHEMA,
-        ),
-    ]
+    tools = []
+
+    if "products" in ENDPOINTS:
+        tools.append(
+            Tool(
+                name="create_test_products",
+                description="Creates test products by calling the /products API endpoint.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"count": {"type": "number", "description": "Number of products to create."}},
+                    "required": ["count"],
+                },
+            )
+        )
+
+    if "customers" in ENDPOINTS:
+        tools.append(
+            Tool(
+                name="create_test_customers",
+                description="Creates test customers by calling the /customers API endpoint.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"count": {"type": "number", "description": "Number of customers to create."}},
+                    "required": ["count"],
+                },
+            )
+        )
+
+    if "reset" in ENDPOINTS:
+        tools.append(
+            Tool(
+                name="clear_test_data",
+                description="**DANGER**: Clears all test data via /admin/reset-test-db.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "confirm": {"type": "boolean", "description": "Set to true to confirm data wipe."}
+                    },
+                    "required": ["confirm"],
+                },
+            )
+        )
+
+    return tools
 
 
-# --- Helper: API Request with Retry ---
+# --- Helper: Generate Fake Data Based on Config ---
+def generate_fake_data(field_map: dict) -> dict:
+    data = {}
+    for key, faker_method in field_map.items():
+        if faker_method == "int":
+            data[key] = fake.random_int(min=0, max=1000)
+        elif faker_method == "price":
+            data[key] = round(fake.random_number(digits=2) + fake.random_number(digits=2) / 100, 2)
+        elif faker_method == "sku":
+            data[key] = fake.bothify(text="????-####")
+        elif hasattr(fake, faker_method):
+            value = getattr(fake, faker_method)()
+            if isinstance(value, str):
+                data[key] = value.replace("\n", ", ")  # flatten addresses
+            else:
+                data[key] = value
+        else:
+            data[key] = f"<no faker method: {faker_method}>"
+    return data
+
+
+# --- Helper: API Post with Retry ---
 async def api_post_with_retry(client: httpx.AsyncClient, endpoint: str, payload: dict, retries: int = 3) -> dict:
     for attempt in range(1, retries + 1):
         try:
@@ -90,69 +115,49 @@ async def api_post_with_retry(client: httpx.AsyncClient, endpoint: str, payload:
 # --- Tool Handlers ---
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "create_test_products":
-        count = arguments.get("count", 1)
-        category = arguments.get("category") or fake.word()
+    results = []
 
-        results = []
-        async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
+    async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
+        if name == "create_test_products" and "products" in ENDPOINTS:
+            count = arguments.get("count", 1)
+            fields = ENDPOINTS["products"]["fields"]
+            path = ENDPOINTS["products"]["path"]
+
             for _ in range(count):
-                product_data = {
-                    "name": fake.catch_phrase(),
-                    "description": fake.paragraph(),
-                    "category": category,
-                    "price": round(fake.random_number(digits=2) + fake.random_number(digits=2) / 100, 2),
-                    "quantity": fake.random_int(min=0, max=1000),
-                }
-                result = await api_post_with_retry(client, "/products/products", product_data)
-                if result["status"] == "success":
-                    result["product"] = product_data
+                payload = generate_fake_data(fields)
+                result = await api_post_with_retry(client, path, payload)
                 results.append(result)
 
-        return [TextContent(type="text", text=json.dumps(results, indent=2))]
+        elif name == "create_test_customers" and "customers" in ENDPOINTS:
+            count = arguments.get("count", 1)
+            fields = ENDPOINTS["customers"]["fields"]
+            path = ENDPOINTS["customers"]["path"]
 
-    elif name == "create_test_customers":
-        if not arguments.get("count"):
-            return [TextContent(type="text", text=json.dumps({"error": "'count' argument is required."}))]
-
-        count = arguments["count"]
-        results = []
-        async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
             for _ in range(count):
-                customer_data = {
-                    "firstName": fake.first_name(),
-                    "lastName": fake.last_name(),
-                    "email": fake.unique.email(),
-                    "address": fake.address().replace("\n", ", "),
-                    "phoneNumber": fake.phone_number(),
-                }
-
-                result = await api_post_with_retry(client, "/customers", customer_data)
-                if result["status"] == "success":
-                    result["customer"] = customer_data
+                payload = generate_fake_data(fields)
+                result = await api_post_with_retry(client, path, payload)
                 results.append(result)
 
-        # Clear Faker unique constraints to avoid collisions later
-        fake.unique.clear()
+            fake.unique.clear()
 
-        return [TextContent(type="text", text=json.dumps(results, indent=2))]
+        elif name == "clear_test_data" and "reset" in ENDPOINTS:
+            if not arguments.get("confirm"):
+                return [TextContent(type="text", text=json.dumps({"status": "cancelled", "reason": "Confirmation required"}))]
 
-    elif name == "clear_test_data":
-        if not arguments.get("confirm"):
-            return [TextContent(type="text", text=json.dumps({"status": "cancelled", "reason": "Confirmation required"}))]
+            path = ENDPOINTS["reset"]["path"]
+            result = await api_post_with_retry(client, path, {})
+            results.append(result)
 
-        async with httpx.AsyncClient(base_url=API_BASE_URL) as client:
-            result = await api_post_with_retry(client, "/admin/reset-test-db", {})
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        else:
+            raise ValueError(f"Unknown tool: {name}")
 
-    else:
-        raise ValueError(f"Unknown tool: {name}")
+    return [TextContent(type="text", text=json.dumps(results, indent=2))]
 
 
 # --- Main Entry Point ---
 async def main():
     async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream,initialization_options={})
+        await server.run(read_stream, write_stream, initialization_options={})
 
 
 if __name__ == "__main__":

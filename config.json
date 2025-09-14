@@ -1,0 +1,30 @@
+{
+  "api_base_url": "http://localhost:8000/api",
+  "endpoints": {
+    "products": {
+      "path": "/products",
+      "fields": {
+        "name": "catch_phrase",
+        "description": "paragraph",
+        "category": "word",
+        "price": "price",
+        "stockQuantity": "int",
+        "sku": "sku"
+      }
+    },
+    "customers": {
+      "path": "/customers",
+      "fields": {
+        "firstName": "first_name",
+        "lastName": "last_name",
+        "email": "email",
+        "address": "address",
+        "phoneNumber": "phone_number"
+      }
+    },
+    "reset": {
+      "path": "/admin/reset-test-db",
+      "fields": {}
+    }
+  }
+}

@@ -1,115 +1,122 @@
-# API Test MCP Server
 
-This project implements a **Minimal Compute Protocol (MCP) server** that provides tools for quickly generating and managing **test data** against a REST API. It’s designed for developers who want to **seed their test environments** with realistic products, customers, and reset data — all through the MCP standard.
 
----
+# 🛠️ MCP API Integration Tool
 
-## ✨ Features
+This project is a **Model Context Protocol (MCP) server** that enables you to integrate with any REST API.
+Instead of hardcoding endpoints and request payloads, it uses a `config.json` file where you can define:
 
-- **Create Test Products**
-  - Generates realistic product records with:
-    - Name (catchphrase)
-    - Description
-    - Category (custom or random)
-    - Price
-    - Stock quantity
-    - SKU
-  - Sends data to `/products` endpoint.
+* The **API base URL**
+* A list of **endpoints** with their paths and fields
+* Example payloads to guide requests
 
-- **Create Test Customers**
-  - Generates realistic customer records with:
-    - First/last name
-    - Email
-    - Address
-    - Phone number
-  - Sends data to `/customers` endpoint.
-
-- **Clear Test Data**
-  - Calls a special endpoint (`/admin/reset-test-db`) to wipe all test data.
-  - **Dangerous: only use on test environments.**
-
-- **Faker Integration**
-  - Uses [Faker](https://faker.readthedocs.io/) to generate believable random data.
-
-- **Error Handling & Retries**
-  - Retries failed API calls with exponential backoff.
-  - Returns structured JSON results for easier parsing.
-
----
-
-## 🛠️ Tech Stack
-
-- **Python 3.10+**
-- [asyncio](https://docs.python.org/3/library/asyncio.html) – async event loop
-- [httpx](https://www.python-httpx.org/) – async HTTP client
-- [Faker](https://faker.readthedocs.io/) – fake data generation
-- [mcp](https://pypi.org/project/mcp/) – Minimal Compute Protocol server library
-- [anyio](https://anyio.readthedocs.io/) – async backend
+This makes it flexible for connecting to different APIs without modifying the code.
 
 ---
 
 ## 📂 Project Structure
 
 ```
-
-.
-├── main.py        # MCP server implementation
-├── requirements.txt  # Dependencies
-└── README.md      # Project documentation
-
-````
-
----
-
-## 🚀 Usage
-
-1. **Clone the repo** and set up a virtual environment:
-
-   ```bash
-   git clone https://github.com/yourusername/py-mcp.git
-   cd py-mcp
-   python -m venv env
-   source env/bin/activate   # (or env\Scripts\activate on Windows)
-````
-
-2. **Install dependencies:**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Run the server:**
-
-   ```bash
-   python main.py
-   ```
-
-4. The server starts in **stdio mode**, ready to accept MCP client connections.
-
----
-
-## 🔧 Configuration
-
-By default, the server connects to:
-
-```
-http://localhost:8000/api
+py-mcp/
+│── main.py         # MCP server implementation
+│── config.json     # Stores base URL, endpoints, and payload field definitions
+│── README.md       # Project documentation
 ```
 
-If you want to target another API, update the `API_BASE_URL` in `main.py`, or pass it via initialization options (future enhancement).
+---
+
+## ⚙️ Configuration (`config.json`)
+
+The `config.json` file controls how the MCP server connects to your API.
+
+Example:
+
+```json
+{
+  "api_base_url": "http://localhost:8000/api",
+  "endpoints": {
+    "products": {
+      "path": "/products",
+      "method": "POST",
+      "fields": {
+        "name": "string",
+        "price": "float",
+        "stockQuantity": "integer"
+      }
+    },
+    "customers": {
+      "path": "/customers",
+      "method": "POST",
+      "fields": {
+        "firstName": "string",
+        "lastName": "string",
+        "email": "string"
+      }
+    }
+  }
+}
+```
+
+* `api_base_url` → The root URL of your API
+* `endpoints` → A dictionary of available endpoints
+
+  * Each endpoint has:
+
+    * `path`: the URL path (e.g., `/products`)
+    * `method`: HTTP method (`POST`, `GET`, `PUT`, `DELETE`)
+    * `fields`: expected request body fields
 
 ---
 
-## ⚠️ Warnings
+## 🚀 Running the MCP Server
 
-* **Do not use in production.**
-  The `clear_test_data` tool will wipe your database.
-* Always ensure you’re pointing at a **test environment**.
+1. Install dependencies:
+
+```bash
+pip install mcp httpx anyio
+```
+
+2. Ensure your `config.json` is set up correctly.
+
+3. Run the MCP server:
+
+```bash
+py main.py
+```
 
 ---
 
-## 📜 License
+## 🧩 Example Usage
 
-MIT License – feel free to use, modify, and share.
+* With the `config.json` above, you can call:
 
+```json
+{
+  "endpoint": "products",
+  "payload": {
+    "name": "Laptop",
+    "price": 1200,
+    "stockQuantity": 50
+  }
+}
+```
+
+The server will send this request to:
+
+```
+POST http://localhost:8000/api/products
+```
+
+And return the API’s response.
+
+---
+
+## 🌟 Features
+
+* ✅ MCP-compatible server
+* ✅ Loads endpoints dynamically from `config.json`
+* ✅ Supports multiple APIs without code changes
+* ✅ Validates required payload fields
+* ✅ Flexible for REST API integrations
+
+---
 
