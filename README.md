@@ -1,5 +1,3 @@
-
-```markdown
 # API Test MCP Server
 
 This project implements a **Minimal Compute Protocol (MCP) server** that provides tools for quickly generating and managing **test data** against a REST API. It’s designed for developers who want to **seed their test environments** with realistic products, customers, and reset data — all through the MCP standard.
